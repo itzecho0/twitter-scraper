@@ -7,7 +7,7 @@ import { LoadingState } from "../components/ui/LoadingState";
 import { PageHeader } from "../components/ui/PageHeader";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { useToast } from "../components/ui/ToastContext";
-import { generationSeed, posts, type Post } from "../data/mockData";
+import { generationSeed, type Post } from "../data/mockData";
 import {
   addConversationMessage,
   addRevision,
@@ -15,6 +15,7 @@ import {
   getBrandSettings,
   getConversation,
   getGenerationByPostId,
+  getKnownPost,
   getRevision,
   getRevisions,
   restorePreviousRevision,
@@ -36,17 +37,18 @@ type ChatMessage = {
 function sourcePayload(post: Post) {
   return {
     id: post.id,
-    author: post.author,
+    author: post.authorName,
     username: post.username,
-    preview: post.preview,
-    content: post.content
+    preview: post.heading,
+    content: post.body
   };
 }
 
 export function GeneratePage() {
   const { id } = useParams();
   const { showToast } = useToast();
-  const post = posts.find((entry) => entry.id === id);
+  const [post, setPost] = useState<Post | null>(null);
+  const [postLoaded, setPostLoaded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [aiBusy, setAiBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,11 +64,12 @@ export function GeneratePage() {
   const quickControls = useMemo(() => generationSeed.refinements, []);
 
   const loadOrGenerate = async () => {
-    if (!id || !post) {
+    if (!id) {
       return;
     }
 
     setIsLoading(true);
+    setPostLoaded(false);
     setError(null);
     setDraft("");
     setGeneration(null);
@@ -78,11 +81,17 @@ export function GeneratePage() {
 
     const data = await runDb(
       async () => {
+        const loadedPost = await getKnownPost(id);
+        if (!loadedPost) {
+          return null;
+        }
+
         const existingGeneration = await getGenerationByPostId(id);
         if (existingGeneration) {
           const existingRevisions = await getRevisions(existingGeneration.id);
           const existingMessages = await getConversation(existingGeneration.id);
           return {
+            post: loadedPost,
             generation: existingGeneration,
             revisions: existingRevisions,
             messages: existingMessages,
@@ -92,12 +101,13 @@ export function GeneratePage() {
 
         const settings = await getBrandSettings();
         const response = await generateDraft({
-          sourcePost: sourcePayload(post),
+          sourcePost: sourcePayload(loadedPost),
           brandSystemPrompt: settings.brandPrompt
         });
         const created = await createGeneration(id, response.draft, `Initial AI draft via ${response.model}`);
         return {
           ...created,
+          post: loadedPost,
           currentRevision: await getRevision(created.generation.currentRevisionId)
         };
       },
@@ -110,11 +120,15 @@ export function GeneratePage() {
     );
 
     if (!data) {
+      setPost(null);
+      setPostLoaded(true);
       setIsLoading(false);
       return;
     }
 
     const currentRevision = data.currentRevision ?? data.revisions[data.revisions.length - 1];
+    setPost(data.post);
+    setPostLoaded(true);
     setGeneration(data.generation);
     setRevisions(data.revisions);
     setDraft(currentRevision?.content ?? "");
@@ -145,8 +159,12 @@ export function GeneratePage() {
     return () => window.clearTimeout(timer);
   }, [activeRevisionId, draft, generation, isLoading, showToast]);
 
-  if (!post) {
+  if (postLoaded && !post) {
     return <Navigate to="/discover" replace />;
+  }
+
+  if (!post) {
+    return <LoadingState message="Loading selected post..." detail="Preparing the source post for generation." />;
   }
 
   const characterCount = draft.length;

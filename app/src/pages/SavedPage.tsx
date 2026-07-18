@@ -3,22 +3,28 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { PageHeader } from "../components/ui/PageHeader";
 import { PostCard } from "../components/ui/PostCard";
 import { useToast } from "../components/ui/ToastContext";
-import { posts } from "../data/mockData";
-import { getSavedPostIds, removeSavedPost, runDb } from "../storage/db";
+import { posts, type Post } from "../data/mockData";
+import { getKnownPosts, getSavedPostIds, removeSavedPost, runDb } from "../storage/db";
 
 export function SavedPage() {
   const { showToast } = useToast();
   const [savedIds, setSavedIds] = useState(posts.filter((post) => post.saved).map((post) => post.id));
+  const [savedPosts, setSavedPosts] = useState<Post[]>(posts.filter((post) => post.saved));
 
   useEffect(() => {
     runDb(
       getSavedPostIds,
       [],
       () => showToast("Storage unavailable", "Saved posts could not be loaded.")
-    ).then(setSavedIds);
+    ).then((ids) => {
+      setSavedIds(ids);
+      runDb(
+        () => getKnownPosts(ids),
+        [],
+        () => showToast("Storage unavailable", "Saved post details could not be loaded.")
+      ).then(setSavedPosts);
+    });
   }, [showToast]);
-
-  const savedPosts = posts.filter((post) => savedIds.includes(post.id));
 
   return (
     <section>
@@ -41,6 +47,7 @@ export function SavedPage() {
               showRemove
               onRemove={(postId) => {
                 setSavedIds((current) => current.filter((id) => id !== postId));
+                setSavedPosts((current) => current.filter((post) => post.id !== postId));
                 runDb(
                   () => removeSavedPost(postId),
                   undefined,

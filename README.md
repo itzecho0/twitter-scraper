@@ -5,7 +5,7 @@ This project runs as two local services:
 - React/Vite frontend at `http://localhost:5173`
 - FastAPI backend at `http://localhost:8000`
 
-The frontend stores saved posts, history, revisions, conversations, and settings in IndexedDB. The backend only calls the AI provider and returns generated text. It does not store user content or settings.
+The frontend stores saved posts, history, revisions, conversations, source-post cache, and settings in IndexedDB. The backend calls the AI provider and uses Apify to retrieve public X posts. It does not store user content, settings, generated content, or Apify credentials in the frontend.
 
 ## Backend Setup
 
@@ -17,6 +17,15 @@ Copy-Item .env.example .env
 ```
 
 Set `OPENAI_API_KEY` in `.env`. Keep this key server-side only.
+
+For local X search through Apify, also set:
+
+```dotenv
+APIFY_API_TOKEN=apify_api_your-token
+APIFY_ACTOR_ID=scraping_solutions/twitter-x-scraper-post-timeline-search-replies
+```
+
+`APIFY_API_TOKEN` stays in the backend `.env` only. The frontend never receives it.
 
 Install dependencies:
 
@@ -72,10 +81,16 @@ Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/generate" -Conten
 
 For `/api/refine` and `/api/regenerate`, include `currentDraft`; `/api/refine` also needs `userInstruction`.
 
+Test the X search endpoint with a small Apify run:
+
+```powershell
+Invoke-RestMethod -Method Get -Uri "http://localhost:8000/api/posts?search=OpenAI&filter=latest&limit=5"
+```
+
 ## Local Workflow
 
 1. Run FastAPI locally.
 2. Run the React frontend locally.
-3. The frontend sends AI requests to `http://localhost:8000`.
-4. FastAPI calls the AI provider using `OPENAI_API_KEY`.
-5. The frontend saves successful outputs in IndexedDB.
+3. The frontend sends X search and AI requests to `http://localhost:8000`.
+4. FastAPI retrieves recent public X posts through Apify and calls the AI provider using `OPENAI_API_KEY`.
+5. The frontend saves selected source posts, successful outputs, revisions, history, conversations, and settings in IndexedDB.

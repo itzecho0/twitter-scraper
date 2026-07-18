@@ -6,8 +6,16 @@ export type AiDraftResponse = {
   mode: "generate" | "refine" | "regenerate";
 };
 
+type SourcePostPayload = {
+  id: Post["id"];
+  author: string;
+  username: Post["username"];
+  preview: string;
+  content: string;
+};
+
 type GeneratePayload = {
-  sourcePost: Pick<Post, "id" | "author" | "username" | "preview" | "content">;
+  sourcePost: SourcePostPayload;
   brandSystemPrompt: string;
 };
 

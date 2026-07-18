@@ -10,3 +10,5 @@ dist/
 *.tsbuildinfo
 *.log
 .edge-profile*/
+x_cookies.json
+*.cookies.json

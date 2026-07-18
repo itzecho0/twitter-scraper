@@ -45,6 +45,7 @@ export function SettingsPage() {
     preferences: true
   });
   const [brandPrompt, setBrandPrompt] = useState(defaultBrandSettings.brandPrompt);
+  const [searchKeywords, setSearchKeywords] = useState(defaultBrandSettings.searchKeywords);
   const [sourceState, setSourceState] = useState<Record<string, boolean>>(defaultBrandSettings.sources);
   const [preferences, setPreferences] = useState<Record<string, boolean>>(defaultBrandSettings.preferences);
   const [draftStyle, setDraftStyle] = useState(defaultBrandSettings.draftStyle);
@@ -63,6 +64,7 @@ export function SettingsPage() {
       () => showToast("Storage unavailable", "Settings could not be loaded.")
     ).then((settings) => {
       setBrandPrompt(settings.brandPrompt);
+      setSearchKeywords(settings.searchKeywords);
       setSourceState(settings.sources);
       setPreferences(settings.preferences);
       setDraftStyle(settings.draftStyle);
@@ -75,6 +77,7 @@ export function SettingsPage() {
       () =>
         saveBrandSettings({
           brandPrompt,
+          searchKeywords,
           sources: sourceState,
           preferences,
           draftStyle,
@@ -87,6 +90,7 @@ export function SettingsPage() {
 
   const resetPreferences = () => {
     setBrandPrompt(defaultBrandSettings.brandPrompt);
+    setSearchKeywords(defaultBrandSettings.searchKeywords);
     setSourceState(defaultBrandSettings.sources);
     setPreferences(defaultBrandSettings.preferences);
     setDraftStyle(defaultBrandSettings.draftStyle);
@@ -149,6 +153,17 @@ export function SettingsPage() {
         </SettingsSection>
 
         <SettingsSection id="sources" title="Content Sources" open={openSections.sources} onToggle={toggleSection}>
+          <label className="mb-4 block rounded-2xl border border-surface-variant bg-surface px-4 py-4">
+            <span className="font-label text-[12px] uppercase tracking-[0.05em] text-on-surface-variant">
+              X search keywords
+            </span>
+            <input
+              className="mt-3 w-full rounded-xl border border-surface-variant bg-surface-container-lowest px-4 py-3 text-base text-on-surface outline-none focus:border-secondary"
+              value={searchKeywords}
+              onChange={(event) => setSearchKeywords(event.target.value)}
+              placeholder="OpenAI"
+            />
+          </label>
           <div className="grid gap-4 md:grid-cols-2">
             {Object.entries(sourceState).map(([source, enabled]) => (
               <label

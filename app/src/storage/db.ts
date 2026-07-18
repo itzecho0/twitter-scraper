@@ -1,5 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import { generationSeed, posts, type HistoryItem } from "../data/mockData";
+import { generationSeed, posts, type HistoryItem, type Post } from "../data/mockData";
 
 export type ContentStatus = "Draft" | "Ready" | "Posted" | "Archived";
 
@@ -36,6 +36,7 @@ export type ConversationMessageRecord = {
 
 export type BrandSettings = {
   brandPrompt: string;
+  searchKeywords: string;
   sources: Record<string, boolean>;
   preferences: Record<string, boolean>;
   draftStyle: string;
@@ -53,9 +54,44 @@ export type MetaRecord = {
   value: boolean | string | number;
 };
 
+export type SourcePostRecord = Post & {
+  cachedAt: string;
+};
+
+type LegacySourcePost = Partial<Post> & {
+  author?: string;
+  fullDate?: string;
+  preview?: string;
+  content?: string;
+  image?: string;
+};
+
+function normalizeStoredPost(value: LegacySourcePost | undefined): Post | null {
+  if (!value?.id) {
+    return null;
+  }
+
+  const body = value.body ?? value.content ?? value.preview ?? "";
+  const authorName = value.authorName ?? value.author ?? "Unknown";
+  return {
+    id: value.id,
+    heading: value.heading ?? value.preview ?? body.split(/(?<=[.!?])\s+/, 1)[0] ?? "Recent post from X",
+    body,
+    authorName,
+    username: value.username ?? "@unknown",
+    profileImage: value.profileImage,
+    postedAt: value.postedAt ?? value.fullDate ?? "",
+    relativeTime: value.relativeTime ?? "Recent",
+    postImage: value.postImage ?? value.image,
+    sourceUrl: value.sourceUrl ?? "https://x.com/",
+    saved: value.saved
+  };
+}
+
 export const defaultBrandSettings: BrandSettings = {
   brandPrompt:
     "Write like a thoughtful technology operator. Prefer direct language, concrete lessons, credible nuance, and practical takeaways. Avoid exaggerated claims, filler hype, and generic productivity phrasing.",
+  searchKeywords: "OpenAI",
   sources: {
     "X technology feed": true,
     "Founder watchlist": true,
@@ -79,6 +115,7 @@ class RonakAppDatabase extends Dexie {
   conversationMessages!: Table<ConversationMessageRecord, string>;
   settings!: Table<SettingsRecord, string>;
   meta!: Table<MetaRecord, string>;
+  sourcePosts!: Table<SourcePostRecord, string>;
 
   constructor() {
     super("ronak_frontend_app");
@@ -89,6 +126,15 @@ class RonakAppDatabase extends Dexie {
       conversationMessages: "id, generationId, createdAt",
       settings: "key",
       meta: "key"
+    });
+    this.version(2).stores({
+      savedPosts: "postId, savedAt",
+      generations: "id, &postId, status, updatedAt",
+      revisions: "id, generationId, version, createdAt",
+      conversationMessages: "id, generationId, createdAt",
+      settings: "key",
+      meta: "key",
+      sourcePosts: "id, cachedAt, username"
     });
   }
 }
@@ -186,11 +232,50 @@ export async function removeSavedPost(postId: string) {
 
 export async function getBrandSettings() {
   const settings = await db.settings.get("brand");
-  return settings?.value ?? defaultBrandSettings;
+  return {
+    ...defaultBrandSettings,
+    ...settings?.value,
+    sources: {
+      ...defaultBrandSettings.sources,
+      ...settings?.value?.sources
+    },
+    preferences: {
+      ...defaultBrandSettings.preferences,
+      ...settings?.value?.preferences
+    }
+  };
 }
 
 export async function saveBrandSettings(value: BrandSettings) {
   await db.settings.put({ key: "brand", value, updatedAt: nowIso() });
+}
+
+export async function cacheSourcePosts(items: Post[]) {
+  const cachedAt = nowIso();
+  await db.sourcePosts.bulkPut(items.map((post) => ({ ...post, cachedAt })));
+}
+
+export async function getCachedPost(postId: string) {
+  return normalizeStoredPost(await db.sourcePosts.get(postId));
+}
+
+export async function getKnownPost(postId: string) {
+  return (await getCachedPost(postId)) ?? posts.find((post) => post.id === postId) ?? null;
+}
+
+export async function getKnownPosts(postIds: string[]) {
+  const cachedRows = (await db.sourcePosts.bulkGet(postIds)).map((post) => normalizeStoredPost(post));
+  const mockRows = posts.filter((post) => postIds.includes(post.id));
+  const byId = new Map<string, Post>();
+
+  mockRows.forEach((post) => byId.set(post.id, post));
+  cachedRows.forEach((post) => {
+    if (post) {
+      byId.set(post.id, post);
+    }
+  });
+
+  return postIds.map((postId) => byId.get(postId)).filter((post): post is Post => Boolean(post));
 }
 
 export async function getGenerationByPostId(postId: string) {
@@ -210,7 +295,7 @@ export async function getConversation(generationId: string) {
 }
 
 export async function createGeneration(postId: string, initialContent: string, reason = "Initial AI draft") {
-  const post = posts.find((entry) => entry.id === postId);
+  const post = await getKnownPost(postId);
   const timestamp = nowIso();
   const generationId = makeId("gen");
   const revisionId = makeId("rev");
@@ -218,7 +303,7 @@ export async function createGeneration(postId: string, initialContent: string, r
   const generation: GenerationRecord = {
     id: generationId,
     postId,
-    title: post ? `${post.author}'s technology post draft` : "Generated content draft",
+    title: post ? `${post.authorName}'s technology post draft` : "Generated content draft",
     status: "Draft",
     currentRevisionId: revisionId,
     updatedAt: timestamp
